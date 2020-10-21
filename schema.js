@@ -1,112 +1,160 @@
-const axios = require('axios');
+const mongodb = require('mongodb');
+// const express = require('express');
+// const router = express.Router();
+
 const {
-    GraphQLObjectType,
-    GraphQLString,
-    GraphQLInt,
-    GraphQLSchema,
-    GraphQLList,
-    GraphQLNonNull
+  GraphQLObjectType,
+  GraphQLString,
+  GraphQLInt,
+  GraphQLSchema,
+  GraphQLList,
+  GraphQLNonNull,
 } = require('graphql');
 
-/*
-// Hardcoded data
-const customers = [
-    {id:'1', name:'John Doe', email:'jdoe@gmail.com', age:35},
-    {id:'2', name:'Steve Smith', email:'steve@gmail.com', age:25},
-    {id:'3', name:'Sara Williams', email:'sara@gmail.com', age:32},
-];
-*/
+//  Connect to user collection
+let loadMongoCollection = async (collection) => {
+  const client = await mongodb.MongoClient.connect(
+    'mongodb+srv://milton:milton@bbgcluster-m9enp.mongodb.net/test?retryWrites=true&w=majority',
+    { useNewUrlParser: true }
+  );
 
-// Customer Type
-const CustomerType = new GraphQLObjectType({
-    name:'Customer',
-    fields:() => ({
-        id: {type:GraphQLString},
-        name: {type: GraphQLString},
-        email: {type: GraphQLString},
-        age: {type: GraphQLInt},
-    })
+  return client.db('BbgCluster').collection(`${collection}`);
+};
+
+/**********************
+ *      Types
+ *********************/
+
+const UserType = new GraphQLObjectType({
+  name: 'User',
+  fields: () => ({
+    _id: { type: GraphQLString },
+    email: { type: GraphQLString },
+    name: { type: GraphQLString },
+    username: { type: GraphQLString },
+    password: { type: GraphQLString },
+  }),
 });
 
-// Root Query
-const RootQuery= new GraphQLObjectType({
-    name:'RootQueryType',
-    fields:{
-        customer:{
-            type:CustomerType,
-            args:{
-                id:{type:GraphQLString}
-            },
-            resolve(parentValue, args){
-                /*
-                for(let i = 0;i < customers.length;i++){
-                    if(customers[i].id == args.id){
-                        return customers[i];
-                    }
-                }
-                */
-                return axios.get('http://localhost:3000/customers/'+ args.id)
-                    .then(res => res.data);
+/**********************
+ *      Root Query
+ *********************/
 
-            }
-        },
-        customers:{
-            type: new GraphQLList(CustomerType),
-            resolve(parentValue, args){
-                return axios.get('http://localhost:3000/customers')
-                    .then(res => res.data);
-            }
-        }
-    }
+const RootQuery = new GraphQLObjectType({
+  name: 'RootQueryType',
+  fields: {
+    // Single User
+    user: {
+      type: UserType,
+      args: {
+        username: { type: GraphQLString },
+      },
+      async resolve(parentValue, args) {
+        const users = await loadMongoCollection('Users');
+        // console.log(await users.find({ username: args.username }).toArray());
+        const foundUser = await users.findOne({ username: args.username });
+        return foundUser;
+      },
+    },
+    // All users
+    users: {
+      type: new GraphQLList(UserType),
+      async resolve(parentValue, args) {
+        let users = await loadMongoCollection('Users');
+        users = await users.find({}).toArray();
+        return users;
+      },
+    },
+  },
 });
 
-// Mutations
+/**********************
+ *      Mutations
+ *********************/
 const mutation = new GraphQLObjectType({
-    name:'Mutation',
-    fields:{
-        addCustomer:{
-            type:CustomerType,
-            args:{
-                name: {type: new GraphQLNonNull(GraphQLString)},
-                email: {type: new GraphQLNonNull(GraphQLString)},
-                age: {type: new GraphQLNonNull(GraphQLInt)}
+  name: 'Mutation',
+  fields: {
+    /*****************
+     * User Mutation
+     ****************/
+    /** Add User **/
+    addUser: {
+      type: UserType,
+      args: {
+        name: { type: new GraphQLNonNull(GraphQLString) },
+        email: { type: new GraphQLNonNull(GraphQLString) },
+        username: { type: new GraphQLNonNull(GraphQLString) },
+        password: { type: new GraphQLNonNull(GraphQLString) },
+      },
+      async resolve(parentValue, args, res) {
+        try {
+          const users = await loadMongoCollection('Users');
+          await users.insertOne({
+            name: args.name,
+            email: args.email,
+            username: args.username,
+            password: args.password,
+          });
+
+          return "status: 'ok'";
+        } catch (e) {
+          return e;
+        }
+      },
+    },
+    /** Delete User **/
+    deleteUser: {
+      type: UserType,
+      args: {
+        _id: { type: new GraphQLNonNull(GraphQLString) },
+      },
+      async resolve(parentValue, args, res) {
+        try {
+          const users = await loadMongoCollection('Users');
+          await users.deleteOne({
+            _id: new mongodb.ObjectID(args._id),
+          });
+          return "status: 'ok'";
+        } catch (e) {
+          return e;
+        }
+      },
+    },
+    /** Update User **/
+    updateUser: {
+      type: UserType,
+      args: {
+        _id: { type: new GraphQLNonNull(GraphQLString) },
+        name: { type: GraphQLString },
+        email: { type: GraphQLString },
+        username: { type: GraphQLString },
+        password: { type: GraphQLString },
+      },
+      async resolve(parentValue, args, res) {
+        try {
+          const users = await loadMongoCollection('Users');
+          // Create new object to apply & remove id key
+          let updated = Object.assign({}, args);
+          delete updated['_id'];
+          await users.updateOne(
+            {
+              _id: new mongodb.ObjectID(args._id),
             },
-            resolve(parentValue, args){
-                return axios.post('http://localhost:3000/customers', {
-                    name:args.name,
-                    email: args.email,
-                    age:args.age
-                })
-                .then(res => res.data);
+            {
+              $set: updated,
             }
-        },
-        deleteCustomer:{
-            type:CustomerType,
-            args:{
-                id:{type: new GraphQLNonNull(GraphQLString)}
-            },
-            resolve(parentValue, args){
-                return axios.delete('http://localhost:3000/customers/'+args.id)
-                .then(res => res.data);
-            }
-        },
-        editCustomer:{
-            type:CustomerType,
-            args:{
-                id:{type: new GraphQLNonNull(GraphQLString)},
-                name: {type: GraphQLString},
-                email: {type: GraphQLString},
-                age: {type: GraphQLInt}
-            },
-            resolve(parentValue, args){
-                return axios.patch('http://localhost:3000/customers/'+args.id, args)
-                .then(res => res.data);
-            }
-        },
-    }
+          );
+          return "status: 'ok'";
+        } catch (e) {
+          console.log(e);
+          return e;
+        }
+      },
+    },
+  },
 });
 
 module.exports = new GraphQLSchema({
-    query: RootQuery,
-    mutation
+  query: RootQuery,
+  mutation,
 });
