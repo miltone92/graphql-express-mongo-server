@@ -3,6 +3,7 @@
 Node.js/Express CRUD backend using GraphQL and JSON-Server
 
 ### Version
+
 1.0.0
 
 ## Usage
@@ -11,12 +12,6 @@ Node.js/Express CRUD backend using GraphQL and JSON-Server
 
 ```bash
 $ npm install
-```
-
--Run JSON-Server (Port 3000)
-
-```bash
-$ npm run json:server
 ```
 
 -Run Server (Port 4000)
